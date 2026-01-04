@@ -8,16 +8,12 @@ import requests
 import urllib3
 
 # -----------------------------
-# DISABLE SSL WARNINGS
-# -----------------------------
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# -----------------------------
-# PAGE CONFIG
+# CONFIG
 # -----------------------------
 st.set_page_config(page_title="Melanie's Smoothies", page_icon="🥤")
-st.title("🥤 Customize Your Smoothie")
-st.write("Choose the fruits you want in your custom Smoothie!")
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+st.title("🥤 Melanie's Smoothies")
 
 # -----------------------------
 # SNOWFLAKE CONNECTION
@@ -31,76 +27,59 @@ conn = snowflake.connector.connect(
     database=st.secrets["snowflake"]["database"],
     schema=st.secrets["snowflake"]["schema"],
 )
-
 cursor = conn.cursor()
 
-# -----------------------------
-# CUSTOMER NAME
-# -----------------------------
-name_on_order = st.text_input("Name on Smoothie:")
-st.write("The name on your Smoothie will be:", name_on_order)
+# ======================================================
+# 🍓 CUSTOMER ORDER SECTION
+# ======================================================
+st.header("🧑‍🍳 Order a Smoothie")
 
-# -----------------------------
-# LOAD FRUIT OPTIONS (WITH SEARCH_ON)
-# -----------------------------
+name_on_order = st.text_input("Name on Smoothie")
+
+# Load fruit options with SEARCH_ON
 cursor.execute("""
     SELECT FRUIT_NAME, SEARCH_ON
     FROM smoothies.public.fruit_options
 """)
-
-rows = cursor.fetchall()
-
-pd_df = pd.DataFrame(
-    rows,
+fruit_df = pd.DataFrame(
+    cursor.fetchall(),
     columns=["FRUIT_NAME", "SEARCH_ON"]
 )
 
-st.subheader("Available Fruits")
-st.dataframe(pd_df[["FRUIT_NAME"]], width="stretch")
-
-# -----------------------------
-# INGREDIENT SELECTION (IMAGE LOGIC)
-# -----------------------------
 ingredients_list = st.multiselect(
     "Choose up to 5 ingredients:",
-    pd_df["FRUIT_NAME"].tolist(),
+    fruit_df["FRUIT_NAME"].tolist(),
     max_selections=5
 )
 
-# -----------------------------
-# NUTRITION INFORMATION (FROM IMAGE)
-# -----------------------------
 ingredients_string = ""
 
+# -----------------------------
+# NUTRITION INFO (WORKING API)
+# -----------------------------
 if ingredients_list:
+    st.subheader("🥗 Nutrition Information")
+
     for fruit_chosen in ingredients_list:
         ingredients_string += fruit_chosen + " "
 
-        # 🔑 EXACT IMAGE LOGIC
-        search_on = pd_df.loc[
-            pd_df["FRUIT_NAME"] == fruit_chosen,
+        search_on = fruit_df.loc[
+            fruit_df["FRUIT_NAME"] == fruit_chosen,
             "SEARCH_ON"
         ].iloc[0]
 
-        st.write(
-            "The search value for",
-            fruit_chosen,
-            "is",
-            search_on
-        )
-
-        st.subheader(fruit_chosen + " Nutrition Information")
+        st.subheader(f"{fruit_chosen} Nutrition Information")
 
         try:
-            fruityvice_response = requests.get(
-                "https://my.smoothiefruit.com/api/fruit/" + search_on,
+            response = requests.get(
+                f"https://my.smoothiefruit.com/api/fruit/{search_on}",
                 verify=False,
                 timeout=10
             )
 
-            if fruityvice_response.status_code == 200:
+            if response.status_code == 200:
                 st.dataframe(
-                    pd.DataFrame(fruityvice_response.json(), index=[0]),
+                    pd.DataFrame(response.json(), index=[0]),
                     width="stretch"
                 )
             else:
@@ -112,7 +91,7 @@ if ingredients_list:
 # -----------------------------
 # SUBMIT ORDER
 # -----------------------------
-if ingredients_list and name_on_order:
+if name_on_order and ingredients_list:
     if st.button("Submit Order"):
         cursor.execute(
             """
@@ -124,25 +103,50 @@ if ingredients_list and name_on_order:
         conn.commit()
         st.success("✅ Your Smoothie is ordered!")
 
-# -----------------------------
-# PENDING ORDERS VIEW
-# -----------------------------
+# ======================================================
+# 🧾 KITCHEN VIEW – WITH WORKING CHECKBOXES
+# ======================================================
 st.divider()
-st.title("🧾 Pending Smoothie Orders")
+st.header("🧾 Pending Smoothie Orders")
 
 cursor.execute("""
-    SELECT INGREDIENTS, NAME_ON_ORDER, ORDER_FILLED
+    SELECT ORDER_UID, INGREDIENTS, NAME_ON_ORDER, ORDER_FILLED
     FROM smoothies.public.orders
     WHERE ORDER_FILLED = FALSE
 """)
 
-orders = cursor.fetchall()
+orders_df = pd.DataFrame(
+    cursor.fetchall(),
+    columns=["ORDER_UID", "INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
+)
 
-if not orders:
-    st.success("🎉 No pending orders right now!")
+if orders_df.empty:
+    st.success("🎉 No pending orders!")
 else:
-    orders_df = pd.DataFrame(
-        orders,
-        columns=["INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
-    )
-    st.dataframe(orders_df, width="stretch")
+    for _, row in orders_df.iterrows():
+        col1, col2, col3 = st.columns([4, 3, 1])
+
+        with col1:
+            st.write(row["INGREDIENTS"])
+
+        with col2:
+            st.write(row["NAME_ON_ORDER"])
+
+        with col3:
+            completed = st.checkbox(
+                "Done",
+                key=f"order_{row['ORDER_UID']}"
+            )
+
+            if completed:
+                cursor.execute(
+                    """
+                    UPDATE smoothies.public.orders
+                    SET ORDER_FILLED = TRUE
+                    WHERE ORDER_UID = %s
+                    """,
+                    (row["ORDER_UID"],)
+                )
+                conn.commit()
+                st.success("Order completed ✔")
+                st.experimental_rerun()
