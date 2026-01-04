@@ -77,3 +77,7 @@ else:
         columns=["INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
     )
     st.dataframe(orders_df, use_container_width=True)
+
+import requests
+smoothiefroot_response = requests.get("https://my.smoothiefroot.com/api/fruit/watermelon")
+st.text(smoothiefroot_response)
