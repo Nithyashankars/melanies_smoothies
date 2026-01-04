@@ -5,7 +5,7 @@ import requests
 import urllib3
 
 # -----------------------------
-# DISABLE SSL WARNINGS (for Streamlit Cloud)
+# DISABLE SSL WARNINGS (Streamlit Cloud)
 # -----------------------------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -59,9 +59,12 @@ if ingredients:
 
         st.subheader(f"{fruit_chosen} - Nutrition Information")
 
+        # 🔑 FIX: Convert plural DB name to singular API name
+        api_fruit = fruit_chosen.lower().rstrip("s")
+
         try:
             response = requests.get(
-                f"https://my.smoothiefruit.com/api/fruit/{fruit_chosen}",
+                f"https://my.smoothiefruit.com/api/fruit/{api_fruit}",
                 verify=False,
                 timeout=10
             )
@@ -103,6 +106,7 @@ cursor.execute(
     WHERE ORDER_FILLED = FALSE
     """
 )
+
 orders = cursor.fetchall()
 
 if not orders:
