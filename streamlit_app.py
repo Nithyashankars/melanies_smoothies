@@ -1,90 +1,158 @@
-# Import python packages
+# -----------------------------
+# IMPORTS
+# -----------------------------
 import streamlit as st
-from snowflake.snowpark.functions import col
+import pandas as pd
+import snowflake.connector
+import requests
+import urllib3
 
-# Write directly to the app
-st.title("🥤 Customize Your Smoothie!")
-st.write("Choose the fruits you want in your custom Smoothie!")
-
-# Customer name
-name_on_order = st.text_input("Name on Smoothie:")
-st.write("The name on your Smoothie will be:", name_on_order)
-
-# Snowflake session
-cnx= st.connection("snowflake")
-session = cnx.session()
-
-# Fruit options
-my_dataframe = session.table("smoothies.public.fruit_options").select(col("FRUIT_NAME"))
-st.dataframe(my_dataframe, use_container_width=True)
-
-# Ingredient selection
-ingredients_list = st.multiselect(
-    "Choose up to 5 ingredients:",
-    my_dataframe
+# -----------------------------
+# PAGE CONFIG
+# -----------------------------
+st.set_page_config(
+    page_title="Melanie's Smoothies",
+    page_icon="🥤",
+    layout="wide"
 )
 
-if ingredients_list and name_on_order:
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    # Build ingredients string
-    ingredients_string = ""
+st.title("🥤 Melanie's Smoothies")
+
+# -----------------------------
+# SNOWFLAKE CONNECTION
+# -----------------------------
+conn = snowflake.connector.connect(
+    account=st.secrets["snowflake"]["account"],
+    user=st.secrets["snowflake"]["user"],
+    password=st.secrets["snowflake"]["password"],
+    role=st.secrets["snowflake"]["role"],
+    warehouse=st.secrets["snowflake"]["warehouse"],
+    database=st.secrets["snowflake"]["database"],
+    schema=st.secrets["snowflake"]["schema"],
+)
+cursor = conn.cursor()
+
+# =====================================================
+# 🍓 CUSTOMER ORDER SECTION
+# =====================================================
+st.header("🧑‍🍳 Order a Smoothie")
+
+name_on_order = st.text_input("Name on Smoothie:")
+
+# Load fruit options WITH SEARCH_ON (from your screenshot)
+cursor.execute("""
+    SELECT FRUIT_NAME, SEARCH_ON
+    FROM smoothies.public.fruit_options
+""")
+
+fruit_df = pd.DataFrame(
+    cursor.fetchall(),
+    columns=["FRUIT_NAME", "SEARCH_ON"]
+)
+
+ingredients_list = st.multiselect(
+    "Choose up to 5 ingredients:",
+    fruit_df["FRUIT_NAME"].tolist(),
+    max_selections=5
+)
+
+ingredients_string = ""
+
+# =====================================================
+# 🥗 NUTRITION INFORMATION (API WORKING)
+# =====================================================
+if ingredients_list:
+    st.subheader("🥗 Nutrition Information")
+
     for fruit_chosen in ingredients_list:
         ingredients_string += fruit_chosen + " "
 
-    # ✅ FIXED INSERT (columns match values)
-    my_insert_stmt = f"""
-        INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
-        VALUES ('{ingredients_string}', '{name_on_order}')
-    """
+        search_on = fruit_df.loc[
+            fruit_df["FRUIT_NAME"] == fruit_chosen,
+            "SEARCH_ON"
+        ].iloc[0]
 
-    st.code(my_insert_stmt, language="sql")
-
-    if st.button("Submit Order"):
-        session.sql(my_insert_stmt).collect()
-        st.success("Your Smoothie is ordered! ✅")
-
-
-# Import python packages
-import streamlit as st
-from snowflake.snowpark.context import get_active_session
-from snowflake.snowpark.functions import col, when_matched
-
-# Write directly to the app
-st.title(":cup_with_straw: Pending Smoothie Orders :cup_with_straw:")
-st.write("Orders that need to be filled.")
-
-session = get_active_session()
-
-my_dataframe = (
-    session.table("smoothies.public.orders")
-    .filter(col("ORDER_FILLED") == False)
-)
-
-if my_dataframe:
-    editable_df = st.data_editor(my_dataframe)
-
-    submitted = st.button("Submit")
-
-    if submitted:
-        og_dataset = session.table("smoothies.public.orders")
-        edited_dataset = session.create_dataframe(editable_df)
+        st.subheader(f"{fruit_chosen} - Nutrition Information")
 
         try:
-            og_dataset.merge(
-                edited_dataset,
-                (og_dataset["order_uid"] == edited_dataset["order_uid"]),
-                [
-                    when_matched().update(
-                        {"ORDER_FILLED": edited_dataset["ORDER_FILLED"]}
-                    )
-                ]
+            response = requests.get(
+                f"https://my.smoothiefruit.com/api/fruit/{search_on}",
+                verify=False,
+                timeout=10
             )
-            st.success("Order(s) Updated!", icon="👍")
-        except:
-            st.write("Something went wrong.")
+
+            if response.status_code == 200:
+                st.dataframe(
+                    pd.DataFrame(response.json(), index=[0]),
+                    width="stretch"
+                )
+            else:
+                st.warning(f"Nutrition data not available for {fruit_chosen}")
+
+        except requests.exceptions.RequestException:
+            st.error(f"Unable to fetch nutrition data for {fruit_chosen}")
+
+# =====================================================
+# ✅ SUBMIT ORDER
+# =====================================================
+if name_on_order and ingredients_list:
+    if st.button("Submit Order"):
+        cursor.execute(
+            """
+            INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
+            VALUES (%s, %s)
+            """,
+            (ingredients_string.strip(), name_on_order)
+        )
+        conn.commit()
+        st.success("✅ Your Smoothie is ordered!")
+
+# =====================================================
+# 🧾 KITCHEN VIEW – CHECKBOX COMPLETION (WORKING)
+# =====================================================
+st.divider()
+st.header("🧾 Pending Smoothie Orders")
+
+cursor.execute("""
+    SELECT ORDER_UID, INGREDIENTS, NAME_ON_ORDER, ORDER_FILLED
+    FROM smoothies.public.orders
+    WHERE ORDER_FILLED = FALSE
+""")
+
+orders_df = pd.DataFrame(
+    cursor.fetchall(),
+    columns=["ORDER_UID", "INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
+)
+
+if orders_df.empty:
+    st.success("🎉 No pending orders right now!")
 else:
-    st.success("There are no pending orders right now.", icon="👍")
+    for _, row in orders_df.iterrows():
+        c1, c2, c3 = st.columns([5, 3, 1])
 
+        with c1:
+            st.write(row["INGREDIENTS"])
 
+        with c2:
+            st.write(row["NAME_ON_ORDER"])
 
+        with c3:
+            done = st.checkbox(
+                "Done",
+                key=f"order_{row['ORDER_UID']}"
+            )
 
+            if done:
+                cursor.execute(
+                    """
+                    UPDATE smoothies.public.orders
+                    SET ORDER_FILLED = TRUE
+                    WHERE ORDER_UID = %s
+                    """,
+                    (row["ORDER_UID"],)
+                )
+                conn.commit()
+                st.success("Order completed ✔")
+                st.rerun()
