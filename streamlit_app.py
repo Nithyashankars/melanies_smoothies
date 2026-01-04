@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 import snowflake.connector
 import requests
+import urllib3
+
+# -----------------------------
+# DISABLE SSL WARNINGS (for Streamlit Cloud)
+# -----------------------------
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # -----------------------------
 # PAGE SETUP
@@ -10,7 +16,7 @@ st.set_page_config(page_title="Melanie's Smoothies", page_icon="🥤")
 st.title("🥤 Customize Your Smoothie")
 
 # -----------------------------
-# SNOWFLAKE CONNECTION (DIRECT)
+# SNOWFLAKE CONNECTION
 # -----------------------------
 conn = snowflake.connector.connect(
     account=st.secrets["snowflake"]["account"],
@@ -41,30 +47,33 @@ ingredients = st.multiselect(
 )
 
 # -----------------------------
-# NUTRITION INFORMATION (UPDATED)
+# NUTRITION INFORMATION
 # -----------------------------
+ingredients_string = ""
+
 if ingredients:
     st.subheader("🥗 Nutrition Information")
-
-    ingredients_string = ""
 
     for fruit_chosen in ingredients:
         ingredients_string += fruit_chosen + " "
 
         st.subheader(f"{fruit_chosen} - Nutrition Information")
 
-        smoothiefruit_response = requests.get(
-            f"https://my.smoothiefruit.com/api/fruit/{fruit_chosen}"
-        )
-
-        if smoothiefruit_response.status_code == 200:
-            sf_df = pd.DataFrame(
-                smoothiefruit_response.json(),
-                index=[0]
+        try:
+            response = requests.get(
+                f"https://my.smoothiefruit.com/api/fruit/{fruit_chosen}",
+                verify=False,
+                timeout=10
             )
-            st.dataframe(sf_df, use_container_width=True)
-        else:
-            st.warning(f"Nutrition data not available for {fruit_chosen}")
+
+            if response.status_code == 200:
+                sf_df = pd.DataFrame(response.json(), index=[0])
+                st.dataframe(sf_df, use_container_width=True)
+            else:
+                st.warning(f"No nutrition data available for {fruit_chosen}")
+
+        except requests.exceptions.RequestException:
+            st.error(f"Unable to fetch nutrition data for {fruit_chosen}")
 
 # -----------------------------
 # SUBMIT ORDER
@@ -81,11 +90,10 @@ if name_on_order and ingredients:
         conn.commit()
         st.success("✅ Your Smoothie is ordered!")
 
-st.divider()
-
 # -----------------------------
 # KITCHEN VIEW
 # -----------------------------
+st.divider()
 st.title("🧾 Pending Smoothie Orders")
 
 cursor.execute(
