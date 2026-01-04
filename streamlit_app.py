@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import snowflake.connector
+import requests
 
 # -----------------------------
 # PAGE SETUP
@@ -39,16 +40,43 @@ ingredients = st.multiselect(
     max_selections=5
 )
 
-if name_on_order and ingredients:
-    ingredients_string = " ".join(ingredients)
+# -----------------------------
+# NUTRITION INFORMATION (UPDATED)
+# -----------------------------
+if ingredients:
+    st.subheader("🥗 Nutrition Information")
 
+    ingredients_string = ""
+
+    for fruit_chosen in ingredients:
+        ingredients_string += fruit_chosen + " "
+
+        st.subheader(f"{fruit_chosen} - Nutrition Information")
+
+        smoothiefruit_response = requests.get(
+            f"https://my.smoothiefruit.com/api/fruit/{fruit_chosen}"
+        )
+
+        if smoothiefruit_response.status_code == 200:
+            sf_df = pd.DataFrame(
+                smoothiefruit_response.json(),
+                index=[0]
+            )
+            st.dataframe(sf_df, use_container_width=True)
+        else:
+            st.warning(f"Nutrition data not available for {fruit_chosen}")
+
+# -----------------------------
+# SUBMIT ORDER
+# -----------------------------
+if name_on_order and ingredients:
     if st.button("Submit Order"):
         cursor.execute(
             """
             INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
             VALUES (%s, %s)
             """,
-            (ingredients_string, name_on_order)
+            (ingredients_string.strip(), name_on_order)
         )
         conn.commit()
         st.success("✅ Your Smoothie is ordered!")
@@ -77,9 +105,3 @@ else:
         columns=["INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
     )
     st.dataframe(orders_df, use_container_width=True)
-
-import requests
-smoothiefroot_response = requests.get("https://my.smoothiefroot.com/api/fruit/watermelon")
-st.text(smoothiefroot_response.json())
-sf_df = st.dataframe(data=smoothiefroot_response.json(), use_container_width=True)
-
