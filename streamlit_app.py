@@ -1,19 +1,18 @@
+# -----------------------------
+# IMPORTS
+# -----------------------------
 import streamlit as st
 import pandas as pd
 import snowflake.connector
 import requests
-import urllib3
 
 # -----------------------------
-# DISABLE SSL WARNINGS
-# -----------------------------
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# -----------------------------
-# PAGE SETUP
+# PAGE CONFIG
 # -----------------------------
 st.set_page_config(page_title="Melanie's Smoothies", page_icon="🥤")
+
 st.title("🥤 Customize Your Smoothie")
+st.write("Choose the fruits you want in your custom Smoothie!")
 
 # -----------------------------
 # SNOWFLAKE CONNECTION
@@ -31,57 +30,60 @@ conn = snowflake.connector.connect(
 cursor = conn.cursor()
 
 # -----------------------------
-# CUSTOMER UI
+# CUSTOMER NAME
 # -----------------------------
-name_on_order = st.text_input("Name on Smoothie")
+name_on_order = st.text_input("Name on Smoothie:")
+st.write("The name on your Smoothie will be:", name_on_order)
 
-# Fetch fruit options
+# -----------------------------
+# FETCH FRUIT OPTIONS
+# -----------------------------
 cursor.execute("SELECT FRUIT_NAME FROM smoothies.public.fruit_options")
 fruit_rows = cursor.fetchall()
 fruit_list = [row[0] for row in fruit_rows]
 
-ingredients = st.multiselect(
+st.subheader("Available Fruits")
+st.dataframe(pd.DataFrame(fruit_list, columns=["FRUIT_NAME"]), use_container_width=True)
+
+# -----------------------------
+# INGREDIENT SELECTION
+# -----------------------------
+ingredients_list = st.multiselect(
     "Choose up to 5 ingredients:",
     fruit_list,
     max_selections=5
 )
 
 # -----------------------------
-# NUTRITION INFORMATION
+# NUTRITION INFORMATION (NEW)
 # -----------------------------
-ingredients_string = ""
-
-if ingredients:
+if ingredients_list:
     st.subheader("🥗 Nutrition Information")
 
-    for fruit_chosen in ingredients:
+    ingredients_string = ""
+
+    for fruit_chosen in ingredients_list:
         ingredients_string += fruit_chosen + " "
 
         st.subheader(f"{fruit_chosen} - Nutrition Information")
 
-        # Convert plural to singular for API
-        api_fruit = fruit_chosen.lower().rstrip("s")
+        smoothiefruit_response = requests.get(
+            f"https://my.smoothiefruit.com/api/fruit/{fruit_chosen}"
+        )
 
-        try:
-            response = requests.get(
-                f"https://my.smoothiefruit.com/api/fruit/{api_fruit}",
-                verify=False,
-                timeout=10
+        if smoothiefruit_response.status_code == 200:
+            sf_df = pd.DataFrame(
+                data=smoothiefruit_response.json(),
+                index=[0]
             )
-
-            if response.status_code == 200:
-                sf_df = pd.DataFrame(response.json(), index=[0])
-                st.dataframe(sf_df, width="stretch")
-            else:
-                st.warning(f"No nutrition data available for {fruit_chosen}")
-
-        except requests.exceptions.RequestException:
-            st.error(f"Unable to fetch nutrition data for {fruit_chosen}")
+            st.dataframe(sf_df, use_container_width=True)
+        else:
+            st.warning(f"Nutrition data not available for {fruit_chosen}")
 
 # -----------------------------
 # SUBMIT ORDER
 # -----------------------------
-if name_on_order and ingredients:
+if ingredients_list and name_on_order:
     if st.button("Submit Order"):
         cursor.execute(
             """
@@ -94,7 +96,7 @@ if name_on_order and ingredients:
         st.success("✅ Your Smoothie is ordered!")
 
 # -----------------------------
-# KITCHEN VIEW
+# PENDING ORDERS VIEW
 # -----------------------------
 st.divider()
 st.title("🧾 Pending Smoothie Orders")
@@ -110,10 +112,10 @@ cursor.execute(
 orders = cursor.fetchall()
 
 if not orders:
-    st.success("🎉 No pending orders!")
+    st.success("🎉 No pending orders right now!")
 else:
     orders_df = pd.DataFrame(
         orders,
         columns=["INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
     )
-    st.dataframe(orders_df, width="stretch")
+    st.dataframe(orders_df, use_container_width=True)
