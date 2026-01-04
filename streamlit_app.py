@@ -5,6 +5,12 @@ import streamlit as st
 import pandas as pd
 import snowflake.connector
 import requests
+import urllib3
+
+# -----------------------------
+# DISABLE SSL WARNINGS (Streamlit Cloud)
+# -----------------------------
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # -----------------------------
 # PAGE CONFIG
@@ -43,7 +49,10 @@ fruit_rows = cursor.fetchall()
 fruit_list = [row[0] for row in fruit_rows]
 
 st.subheader("Available Fruits")
-st.dataframe(pd.DataFrame(fruit_list, columns=["FRUIT_NAME"]), use_container_width=True)
+st.dataframe(
+    pd.DataFrame(fruit_list, columns=["FRUIT_NAME"]),
+    width="stretch"
+)
 
 # -----------------------------
 # INGREDIENT SELECTION
@@ -55,67 +64,9 @@ ingredients_list = st.multiselect(
 )
 
 # -----------------------------
-# NUTRITION INFORMATION (NEW)
+# NUTRITION INFORMATION (FIXED)
 # -----------------------------
+ingredients_string = ""
+
 if ingredients_list:
-    st.subheader("🥗 Nutrition Information")
-
-    ingredients_string = ""
-
-    for fruit_chosen in ingredients_list:
-        ingredients_string += fruit_chosen + " "
-
-        st.subheader(f"{fruit_chosen} - Nutrition Information")
-
-        smoothiefruit_response = requests.get(
-            f"https://my.smoothiefruit.com/api/fruit/{fruit_chosen}"
-        )
-
-        if smoothiefruit_response.status_code == 200:
-            sf_df = pd.DataFrame(
-                data=smoothiefruit_response.json(),
-                index=[0]
-            )
-            st.dataframe(sf_df, use_container_width=True)
-        else:
-            st.warning(f"Nutrition data not available for {fruit_chosen}")
-
-# -----------------------------
-# SUBMIT ORDER
-# -----------------------------
-if ingredients_list and name_on_order:
-    if st.button("Submit Order"):
-        cursor.execute(
-            """
-            INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
-            VALUES (%s, %s)
-            """,
-            (ingredients_string.strip(), name_on_order)
-        )
-        conn.commit()
-        st.success("✅ Your Smoothie is ordered!")
-
-# -----------------------------
-# PENDING ORDERS VIEW
-# -----------------------------
-st.divider()
-st.title("🧾 Pending Smoothie Orders")
-
-cursor.execute(
-    """
-    SELECT INGREDIENTS, NAME_ON_ORDER, ORDER_FILLED
-    FROM smoothies.public.orders
-    WHERE ORDER_FILLED = FALSE
-    """
-)
-
-orders = cursor.fetchall()
-
-if not orders:
-    st.success("🎉 No pending orders right now!")
-else:
-    orders_df = pd.DataFrame(
-        orders,
-        columns=["INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
-    )
-    st.dataframe(orders_df, use_container_width=True)
+    st.subheader("🥗 Nutrition
