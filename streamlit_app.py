@@ -41,6 +41,7 @@ cursor.execute("""
     SELECT FRUIT_NAME, SEARCH_ON
     FROM smoothies.public.fruit_options
 """)
+
 fruit_df = pd.DataFrame(
     cursor.fetchall(),
     columns=["FRUIT_NAME", "SEARCH_ON"]
@@ -55,7 +56,7 @@ ingredients_list = st.multiselect(
 ingredients_string = ""
 
 # -----------------------------
-# NUTRITION INFO (WORKING API)
+# 🥗 NUTRITION INFORMATION
 # -----------------------------
 if ingredients_list:
     st.subheader("🥗 Nutrition Information")
@@ -104,7 +105,7 @@ if name_on_order and ingredients_list:
         st.success("✅ Your Smoothie is ordered!")
 
 # ======================================================
-# 🧾 KITCHEN VIEW – WITH WORKING CHECKBOXES
+# 🧾 KITCHEN VIEW – WORKING CHECKBOXES
 # ======================================================
 st.divider()
 st.header("🧾 Pending Smoothie Orders")
@@ -149,4 +150,4 @@ else:
                 )
                 conn.commit()
                 st.success("Order completed ✔")
-                st.experimental_rerun()
+                st.rerun()
