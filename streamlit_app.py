@@ -5,7 +5,7 @@ import requests
 import urllib3
 
 # -----------------------------
-# DISABLE SSL WARNINGS (Streamlit Cloud)
+# DISABLE SSL WARNINGS
 # -----------------------------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -59,7 +59,7 @@ if ingredients:
 
         st.subheader(f"{fruit_chosen} - Nutrition Information")
 
-        # 🔑 FIX: Convert plural DB name to singular API name
+        # Convert plural to singular for API
         api_fruit = fruit_chosen.lower().rstrip("s")
 
         try:
@@ -71,7 +71,7 @@ if ingredients:
 
             if response.status_code == 200:
                 sf_df = pd.DataFrame(response.json(), index=[0])
-                st.dataframe(sf_df, use_container_width=True)
+                st.dataframe(sf_df, width="stretch")
             else:
                 st.warning(f"No nutrition data available for {fruit_chosen}")
 
@@ -116,4 +116,4 @@ else:
         orders,
         columns=["INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
     )
-    st.dataframe(orders_df, use_container_width=True)
+    st.dataframe(orders_df, width="stretch")
