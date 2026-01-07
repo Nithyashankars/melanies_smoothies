@@ -1,158 +1,90 @@
-# -----------------------------
-# IMPORTS
-# -----------------------------
+# Import python packages
 import streamlit as st
-import pandas as pd
-import snowflake.connector
-import requests
-import urllib3
-
-# -----------------------------
-# PAGE CONFIG
-# -----------------------------
-st.set_page_config(
-    page_title="Melanie's Smoothies",
-    page_icon="🥤",
-    layout="wide"
+from snowflake.snowpark.context import get_active_session
+from snowflake.snowpark.functions import col
+# Write directly to the app
+st.title(f"Customize Your Smoothie :cup_with_straw:")
+st.write(
+  """Choose the fruits you want in your custom Smoothie!
+  """
 )
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-st.title("🥤 Melanie's Smoothies")
-
-# -----------------------------
-# SNOWFLAKE CONNECTION
-# -----------------------------
-conn = snowflake.connector.connect(
-    account=st.secrets["snowflake"]["account"],
-    user=st.secrets["snowflake"]["user"],
-    password=st.secrets["snowflake"]["password"],
-    role=st.secrets["snowflake"]["role"],
-    warehouse=st.secrets["snowflake"]["warehouse"],
-    database=st.secrets["snowflake"]["database"],
-    schema=st.secrets["snowflake"]["schema"],
-)
-cursor = conn.cursor()
-
-# =====================================================
-# 🍓 CUSTOMER ORDER SECTION
-# =====================================================
-st.header("🧑‍🍳 Order a Smoothie")
 
 name_on_order = st.text_input("Name on Smoothie:")
+st.write("The name on your smoothie will be:", name_on_order)
+#option = st.selectbox(
+ #   'What is your favorite fruit?',
+  #  ('Banana', 'Strawberries', 'Peaches')
+#)
 
-# Load fruit options WITH SEARCH_ON (from your screenshot)
-cursor.execute("""
-    SELECT FRUIT_NAME, SEARCH_ON
-    FROM smoothies.public.fruit_options
-""")
+#st.write('Your favorite fruit is:', option)
+#cnx = st.connection("snowflake")
+session = get_active_session()
+my_dataframe = session.table("smoothies.public.fruit_options").select(col('FRUIT_NAME'))
+#st.dataframe(data=my_dataframe, use_container_width=True)
 
-fruit_df = pd.DataFrame(
-    cursor.fetchall(),
-    columns=["FRUIT_NAME", "SEARCH_ON"]
-)
 
 ingredients_list = st.multiselect(
-    "Choose up to 5 ingredients:",
-    fruit_df["FRUIT_NAME"].tolist(),
-    max_selections=5
+    'Choose upto 5 ingredients:'
+    ,my_dataframe
+    ,max_selections=5
 )
-
-ingredients_string = ""
-
-# =====================================================
-# 🥗 NUTRITION INFORMATION (API WORKING)
-# =====================================================
 if ingredients_list:
-    st.subheader("🥗 Nutrition Information")
-
+    #st.write(ingredients_list)
+    #st.text(ingredients_list)
+    ingredients_string = ''
     for fruit_chosen in ingredients_list:
-        ingredients_string += fruit_chosen + " "
+        ingredients_string += fruit_chosen + ' '
+    #st.write(ingredients_string)
+    my_insert_stmt = """
+             INSERT INTO smoothies.public.orders (ingredients, name_on_order)
+              VALUES ('""" + ingredients_string + """', '""" + name_on_order + """')
+              """
 
-        search_on = fruit_df.loc[
-            fruit_df["FRUIT_NAME"] == fruit_chosen,
-            "SEARCH_ON"
-        ].iloc[0]
+    
+    st.write(my_insert_stmt)
+    #st.stop()
+    time_to_insert = st.button('Submit Order')
+    if time_to_insert:
+        session.sql(my_insert_stmt).collect()
+        st.success(f"Your Smoothie is ordered, {name_on_order}!", icon="✅")
 
-        st.subheader(f"{fruit_chosen} - Nutrition Information")
+        
 
-        try:
-            response = requests.get(
-                f"https://my.smoothiefruit.com/api/fruit/{search_on}",
-                verify=False,
-                timeout=10
-            )
 
-            if response.status_code == 200:
-                st.dataframe(
-                    pd.DataFrame(response.json(), index=[0]),
-                    width="stretch"
-                )
-            else:
-                st.warning(f"Nutrition data not available for {fruit_chosen}")
 
-        except requests.exceptions.RequestException:
-            st.error(f"Unable to fetch nutrition data for {fruit_chosen}")
 
-# =====================================================
-# ✅ SUBMIT ORDER
-# =====================================================
-if name_on_order and ingredients_list:
-    if st.button("Submit Order"):
-        cursor.execute(
-            """
-            INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
-            VALUES (%s, %s)
-            """,
-            (ingredients_string.strip(), name_on_order)
-        )
-        conn.commit()
-        st.success("✅ Your Smoothie is ordered!")
 
-# =====================================================
-# 🧾 KITCHEN VIEW – CHECKBOX COMPLETION (WORKING)
-# =====================================================
-st.divider()
-st.header("🧾 Pending Smoothie Orders")
 
-cursor.execute("""
-    SELECT ORDER_UID, INGREDIENTS, NAME_ON_ORDER, ORDER_FILLED
-    FROM smoothies.public.orders
-    WHERE ORDER_FILLED = FALSE
-""")
 
-orders_df = pd.DataFrame(
-    cursor.fetchall(),
-    columns=["ORDER_UID", "INGREDIENTS", "NAME_ON_ORDER", "ORDER_FILLED"]
-)
+    
 
-if orders_df.empty:
-    st.success("🎉 No pending orders right now!")
-else:
-    for _, row in orders_df.iterrows():
-        c1, c2, c3 = st.columns([5, 3, 1])
+# Get the current credentials
+#session = get_active_session()
 
-        with c1:
-            st.write(row["INGREDIENTS"])
+# Use an interactive slider to get user input
+#hifives_val = st.slider(
+ # "Number of high-fives in Q3",
+  #min_value=0,
+  #max_value=90,
+  #value=60,
+  #help="Use this to enter the number of high-fives you gave in Q3",
+#)
 
-        with c2:
-            st.write(row["NAME_ON_ORDER"])
+#  Create an example dataframe
+#  Note: this is just some dummy data, but you can easily connect to your Snowflake data
+#  It is also possible to query data using raw SQL using session.sql() e.g. session.sql("select * from table")
+#created_dataframe = session.create_dataframe(
+ # [[50, 25, "Q1"], [20, 35, "Q2"], [hifives_val, 30, "Q3"]],
+  #schema=["HIGH_FIVES", "FIST_BUMPS", "QUARTER"],
+#)
 
-        with c3:
-            done = st.checkbox(
-                "Done",
-                key=f"order_{row['ORDER_UID']}"
-            )
+# Execute the query and convert it into a Pandas dataframe
+#queried_data = created_dataframe.to_pandas()
 
-            if done:
-                cursor.execute(
-                    """
-                    UPDATE smoothies.public.orders
-                    SET ORDER_FILLED = TRUE
-                    WHERE ORDER_UID = %s
-                    """,
-                    (row["ORDER_UID"],)
-                )
-                conn.commit()
-                st.success("Order completed ✔")
-                st.rerun()
+# Create a simple bar chart
+# See docs.streamlit.io for more types of charts
+#st.subheader("Number of high-fives")
+#st.bar_chart(data=queried_data, x="QUARTER", y="HIGH_FIVES")
+
+#st.subheader("Underlying data")
+#st.dataframe(queried_data, use_container_width=True)
